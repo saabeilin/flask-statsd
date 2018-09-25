@@ -4,9 +4,8 @@ from flask import g, request
 
 
 class StatsD(object):
-    def __init__(self, app=None, statsd=None, tags=None, metric='api.response.time'):
+    def __init__(self, app=None, statsd=None, metric='api.response.time'):
         self.statsd = statsd
-        self.tags = tags
         self.metric = metric
         # If an app was provided, then call `init_app` for them
         if app is not None:
@@ -33,13 +32,26 @@ class StatsD(object):
 
     def statsd_submit_timers(self, response):
         elapsed = time.time() - g.request_started_at
+        stat_name = getattr(request.url_rule, 'rule', '')
+        self.statsd.timing(stat=stat_name[1:].replace('/', '.'),
+                           delta=elapsed,
+                           rate=1)
+
+
+class StatsDDog(StatsD):
+    def __init__(self, app=None, tags=None, statsd=None, metric='api.response.time'):
+        StatsD.__init__(self, app=app, statsd=statsd, metric=metric)
+        self.tags = tags
+
+    def statsd_submit_timers(self, response):
+        elapsed = time.time() - g.request_started_at
         tags = [
             'method:{}'.format(request.method.lower()),
             'uri_template:{}'.format(getattr(request.url_rule, 'rule', ''))
         ]
         if self.tags:
             tags.extend(self.tags)
-        # TODO - implement support for https://github.com/jsocol/pystatsd
-        # (impediment: what to to with tags?)
         self.statsd.histogram(self.metric, elapsed, tags=tags)
         return response
+
+
