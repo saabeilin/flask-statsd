@@ -4,7 +4,7 @@ from flask import g, request
 
 
 class StatsD(object):
-    def __init__(self, app=None, statsd=None, metric='api.response.time'):
+    def __init__(self, app=None, statsd=None):
         self.statsd = statsd
         self.metric = metric
         # If an app was provided, then call `init_app` for them
@@ -31,16 +31,23 @@ class StatsD(object):
         g.request_started_at = time.time()
 
     def statsd_submit_timers(self, response):
+        def _make_stat_name(req):
+            url_rule = getattr(req.url_rule, 'rule', '')
+            return (
+                url_rule
+                    .lstrip("/")  # drop leading slash
+                    .replace("/", ".")  # use traditional statsd delimiter
+            )
         elapsed = time.time() - g.request_started_at
-        stat_name = getattr(request.url_rule, 'rule', '')
-        self.statsd.timing(stat=stat_name[1:].replace('/', '.'),
+        self.statsd.timing(stat=_make_stat_name(request),
                            delta=elapsed,
                            rate=1)
 
 
 class StatsDDog(StatsD):
     def __init__(self, app=None, tags=None, statsd=None, metric='api.response.time'):
-        StatsD.__init__(self, app=app, statsd=statsd, metric=metric)
+        StatsD.__init__(self, app=app, statsd=statsd)
+        self.metric = metric
         self.tags = tags
 
     def statsd_submit_timers(self, response):
