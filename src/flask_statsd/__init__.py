@@ -4,9 +4,8 @@ from flask import g, request
 
 
 class StatsD(object):
-    def __init__(self, app=None, statsd=None, tags=None, metric='api.response.time'):
+    def __init__(self, app=None, statsd=None):
         self.statsd = statsd
-        self.tags = tags
         self.metric = metric
         # If an app was provided, then call `init_app` for them
         if app is not None:
@@ -32,6 +31,26 @@ class StatsD(object):
         g.request_started_at = time.time()
 
     def statsd_submit_timers(self, response):
+        def _make_stat_name(req):
+            url_rule = getattr(req.url_rule, 'rule', '')
+            return (
+                url_rule
+                    .lstrip("/")  # drop leading slash
+                    .replace("/", ".")  # use traditional statsd delimiter
+            )
+        elapsed = time.time() - g.request_started_at
+        self.statsd.timing(stat=_make_stat_name(request),
+                           delta=elapsed,
+                           rate=1)
+
+
+class StatsDDog(StatsD):
+    def __init__(self, app=None, tags=None, statsd=None, metric='api.response.time'):
+        StatsD.__init__(self, app=app, statsd=statsd)
+        self.metric = metric
+        self.tags = tags
+
+    def statsd_submit_timers(self, response):
         elapsed = time.time() - g.request_started_at
         tags = [
             'method:{}'.format(request.method.lower()),
@@ -39,7 +58,7 @@ class StatsD(object):
         ]
         if self.tags:
             tags.extend(self.tags)
-        # TODO - implement support for https://github.com/jsocol/pystatsd
-        # (impediment: what to to with tags?)
         self.statsd.histogram(self.metric, elapsed, tags=tags)
         return response
+
+
